@@ -9,22 +9,50 @@ The end state is ordinary routing. A VM on one cloud's private subnet reaches a
 VM on the other's by its real address, with no NAT in between, and both still
 reach the internet through their local appliance.
 
-```
-   Cloud A (Alibaba)                          Cloud B (Azure)
-   ┌────────────────────┐                  ┌────────────────────┐
-   │ MikroTik CHR       │                  │ pfSense            │
-   │ ether1  public  ───┼── IPsec/NAT-T ───┼─── hn0  public     │
-   │ ether2  private    │   UDP 500/4500   │    hn1  private    │
-   │                    │                  │                    │
-   │  gre-tunnel ───────┼── GRE, /30 P2P ──┼──── gre0           │
-   │  AS 64513          │◄───── eBGP ─────►│    AS 64512        │
-   └────────┬───────────┘                  └─────────┬──────────┘
-            │ default route                          │ default route
-   ┌────────┴───────────┐                  ┌─────────┴──────────┐
-   │ private subnet     │                  │ private subnet     │
-   │ (no public IPs)    │                  │ (no public IPs)    │
-   └────────────────────┘                  └────────────────────┘
-```
+![Network topology](images/topology.png)
+
+## Why this exists
+
+Before this I connected AWS and Google Cloud using each provider's own managed
+HA VPN with BGP — four IPsec tunnels with ECMP, a Cloud Router on one side and a
+Virtual Private Gateway on the other. That project is documented separately in
+[gcp-aws-conn](https://github.com/andre4freelance/gcp-aws-conn).
+
+It worked, but every moving part was somebody else's product: the tunnel, the
+routing, the failover. That left an obvious question — what does the same
+connection look like when **you** own both endpoints, the way you would on
+premises? This repository is that experiment: the same cross-cloud link, built
+out of appliances you configure yourself.
+
+## Why an appliance, and why these two
+
+The choice of MikroTik CHR and pfSense carries no significance beyond
+availability. The design is deliberately **vendor-agnostic**: the only
+requirement either end has to meet is IPsec and BGP. Swap in a Cisco, a
+FortiGate, a VyOS, a Linux box running strongSwan and FRR — the topology and
+the logic do not change, only the syntax does.
+
+Using two *different* vendors was itself the point. Anything that only works
+because both ends share an implementation would have been caught here.
+
+## Why IPsec first, then BGP
+
+Because that is the shape a managed site-to-site VPN already has. Across the
+providers I have worked with, the pattern is the same in every one: establish
+the tunnel, then run BGP inside it to exchange prefixes dynamically.
+
+Keeping that shape makes the configuration portable in every direction:
+
+- an appliance can be replaced by the cloud's native VPN, and the peer does not
+  notice — the tunnel parameters and the BGP session are the same;
+- a native cloud VPN can be moved onto an appliance when you need something the
+  managed product will not do;
+- an on-premises router or firewall migrating into the cloud is rebuilt as an
+  appliance and reconnected, rather than redesigned.
+
+The alternative — static routes — would have been simpler to stand up and would
+have thrown all of that away. With BGP, each side learns the other's prefixes
+and reacts to changes without anyone editing a route table.
 
 ## Why this is harder than it looks
 
@@ -48,6 +76,7 @@ time lost.
 | `pfsense/apply-tunnel.php` | pfSense side, idempotent, writes config only |
 | `apply.sh` | Renders the templates from `vars.env` and pushes them |
 | `docs/bgp-stability.md` | Why the BGP session flapped, and the three unrelated causes behind it |
+| `diagram/topology.yaml` | Diagram-as-code source for the topology image, so it can be regenerated when the design changes |
 
 The split is deliberate. Terraform builds the machines and everything the
 cloud controls — addresses, NICs, firewalls, route tables. The templates
@@ -89,6 +118,83 @@ ping <peer tunnel ip>                     # the /30 works
 vtysh -c "show bgp summary"               # established, prefixes received
 ping -S <local private> <peer private>    # the actual goal
 ```
+
+## Routing the private subnets through the appliances
+
+A tunnel that passes traffic is not the same as a network that uses it. Each
+cloud still has to be told that the peer's prefix, and the default route, leave
+through the appliance.
+
+The two clouds differ here in a way that matters. Alibaba ships a single
+**System** route table shared by every vSwitch, so scoping a default route to
+the private subnet requires a custom route table and re-associating that
+vSwitch. Its next hop names an **ENI**, which survives the appliance changing
+address.
+
+![Alibaba route table](images/aliyun-rtb.png)
+
+Azure starts with no route table at all, so one is created freely — but its next
+hop can only be an **IP address**, never a NIC. The appliance's private address
+must therefore be static, or every route in the table silently points at
+nothing the moment it moves.
+
+![Azure route table](images/azure-rtb.png)
+
+## The link, running
+
+On the RouterOS side: the GRE interface up, the BGP session established with the
+peer, and the routes learned from the other cloud installed in the main table.
+
+![MikroTik CHR](images/chr.png)
+
+On the pfSense side: both IPsec phases up, the tunnel interface carrying its
+half of the /30, and FRR showing the peer's prefixes with the tunnel as their
+next hop.
+
+![pfSense](images/pfsense.png)
+
+## Validation: a Kubernetes cluster split across two clouds
+
+Pinging between subnets proves reachability. It does not prove the link is good
+enough to carry a real distributed system, which keeps long-lived TCP sessions
+open, moves bulk data, and builds its own encapsulated network on top of yours.
+
+So the test was a single Kubernetes cluster whose nodes sit in different
+subnets, different VPCs, and different clouds:
+
+| | Node | Location |
+|---|---|---|
+| Control plane | `k8s-master` | Alibaba, private vSwitch |
+| Worker | `k8s-worker` | Azure, private subnet |
+
+Neither node has a public address. The worker joins the API server by the
+control plane's **private** address, across the tunnel, and everything the
+cluster does afterwards — scheduling, health checks, logs, exec — crosses the
+same path.
+
+![Nodes and pods](images/kubectl.png)
+
+The pod network is Flannel in VXLAN mode, with its MTU set from the tunnel's
+**measured** path MTU rather than the interface default. This is the one number
+worth transferring to any similar build: an overlay sized for a 1500-byte
+network will appear to work, schedule pods normally, and then hang on the first
+large transfer.
+
+Because the control-plane node carries the standard `NoSchedule` taint, every
+application pod is scheduled onto the worker in the other cloud. A request
+entering through a NodePort on the Alibaba node is therefore forwarded across
+the tunnel before any pod answers it — which is exactly the property being
+tested. The demo application reports the node that served it:
+
+![podinfo served from the other cloud](images/podinfo.png)
+
+The page is reached through the Alibaba appliance, and it answers `served by
+node k8s-worker` — a pod running in Azure. Pod-to-pod traffic between the two
+clouds runs at tunnel speed with no packet loss, and `kubectl logs` and
+`kubectl exec` work against pods on the remote node.
+
+That is the result the whole build was for: two clouds, one routed network, and
+a workload that neither knows nor cares which side of the tunnel it is on.
 
 ## The things that cost the most time
 
