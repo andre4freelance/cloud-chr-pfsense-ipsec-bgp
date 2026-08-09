@@ -1,0 +1,212 @@
+# Diagram-as-code source for images/topology.png
+#
+# Rendered with awslabs/diagram-as-code (awsdac):
+#   awsdac diagram/topology.yaml -o images/topology.png
+#
+# The generator sizes the canvas to fit its contents, so the raw output is not
+# 1920x1080. Fit it afterwards without distorting the drawing:
+#   convert images/topology.png -resize 1920x1080 \
+#           -background white -gravity center -extent 1920x1080 images/topology.png
+#
+# Two layout choices worth keeping if this is edited:
+#
+#   1. Tunnel details live in their own box between the two clouds, NOT as link
+#      labels. Long labels on a link are drawn from the line's endpoint and
+#      overrun whatever is beside them - the first attempt buried the CHR's
+#      title and pushed text off the left edge of the canvas.
+#
+#   2. Each interface address is its own child resource under the appliance,
+#      stacked vertically. Putting them all in one Title makes a single wide
+#      line that escapes its subnet box.
+
+Diagram:
+  DefinitionFiles:
+    - Type: URL
+      Url: https://raw.githubusercontent.com/awslabs/diagram-as-code/main/definitions/definition-for-aws-icons-light.yaml
+
+  Links:
+    - Source: CHR
+      SourcePosition: E
+      Target: TunnelBox
+      TargetPosition: W
+      Type: orthogonal
+      SourceArrowHead:
+        Type: Open
+      TargetArrowHead:
+        Type: Open
+    - Source: TunnelBox
+      SourcePosition: E
+      Target: PFSense
+      TargetPosition: W
+      Type: orthogonal
+      SourceArrowHead:
+        Type: Open
+      TargetArrowHead:
+        Type: Open
+
+  Resources:
+    Canvas:
+      Type: AWS::Diagram::Canvas
+      Direction: vertical
+      Children:
+        - Clouds
+
+    Clouds:
+      Type: AWS::Diagram::HorizontalStack
+      Align: center
+      Children:
+        - AlibabaCloud
+        - TunnelBox
+        - AzureCloud
+
+    TunnelBox:
+      Type: AWS::Diagram::Resource
+      Preset: "Generic group"
+      Title: "Site-to-site tunnel"
+      Direction: vertical
+      Children:
+        - TunnelL1
+        - TunnelL2
+        - TunnelL3
+        - TunnelL4
+
+    TunnelL1:
+      Type: AWS::Diagram::Resource
+      Title: "IPsec IKEv2 + NAT-T"
+    TunnelL2:
+      Type: AWS::Diagram::Resource
+      Title: "UDP 500 / 4500"
+    TunnelL3:
+      Type: AWS::Diagram::Resource
+      Title: "GRE 169.254.100.0/30"
+    TunnelL4:
+      Type: AWS::Diagram::Resource
+      Title: "eBGP 64513 - 64512"
+
+    AlibabaCloud:
+      Type: AWS::Diagram::Cloud
+      Preset: AWSCloudNoLogo
+      Title: "Alibaba Cloud   ap-southeast-5"
+      Children:
+        - VPCAli
+
+    VPCAli:
+      Type: AWS::EC2::VPC
+      Title: "VPC   10.151.64.0/18"
+      Direction: vertical
+      Children:
+        - AliSubnets
+
+    AliSubnets:
+      Type: AWS::Diagram::VerticalStack
+      Children:
+        - AliPublicSubnet
+        - AliPrivateSubnet
+
+    AliPublicSubnet:
+      Type: AWS::EC2::Subnet
+      Preset: PublicSubnet
+      Title: "vSwitch public   10.151.64.0/24"
+      Children:
+        - CHRStack
+
+    CHRStack:
+      Type: AWS::Diagram::VerticalStack
+      Children:
+        - CHR
+        - CHRIf1
+        - CHRIf2
+
+    CHR:
+      Type: AWS::EC2::Instance
+      Title: "MikroTik CHR"
+    CHRIf1:
+      Type: AWS::Diagram::Resource
+      Title: "ether1  10.151.64.84"
+    CHRIf2:
+      Type: AWS::Diagram::Resource
+      Title: "ether2  10.151.74.239   EIP 147.139.142.199"
+
+    AliPrivateSubnet:
+      Type: AWS::EC2::Subnet
+      Preset: PrivateSubnet
+      Title: "vSwitch private   10.151.74.0/24"
+      Children:
+        - MasterStack
+
+    MasterStack:
+      Type: AWS::Diagram::VerticalStack
+      Children:
+        - K8sMaster
+        - MasterIP
+
+    K8sMaster:
+      Type: AWS::EC2::Instance
+      Title: "k8s-master   control plane"
+    MasterIP:
+      Type: AWS::Diagram::Resource
+      Title: "10.151.74.240"
+
+    AzureCloud:
+      Type: AWS::Diagram::Cloud
+      Preset: AWSCloudNoLogo
+      Title: "Azure   Indonesia Central"
+      Children:
+        - VNetAzure
+
+    VNetAzure:
+      Type: AWS::EC2::VPC
+      Title: "VNet vnet-ics-ms   10.126.64.0/18"
+      Direction: vertical
+      Children:
+        - AzureSubnets
+
+    AzureSubnets:
+      Type: AWS::Diagram::VerticalStack
+      Children:
+        - AzurePublicSubnet
+        - AzurePrivateSubnet
+
+    AzurePublicSubnet:
+      Type: AWS::EC2::Subnet
+      Preset: PublicSubnet
+      Title: "subnet-public   10.126.64.0/26"
+      Children:
+        - PFStack
+
+    PFStack:
+      Type: AWS::Diagram::VerticalStack
+      Children:
+        - PFSense
+        - PFIf1
+        - PFIf2
+
+    PFSense:
+      Type: AWS::EC2::Instance
+      Title: "pfSense Plus"
+    PFIf1:
+      Type: AWS::Diagram::Resource
+      Title: "hn0  10.126.64.4"
+    PFIf2:
+      Type: AWS::Diagram::Resource
+      Title: "hn1  10.126.65.4   PIP 48.193.46.116"
+
+    AzurePrivateSubnet:
+      Type: AWS::EC2::Subnet
+      Preset: PrivateSubnet
+      Title: "subnet-private   10.126.65.0/24"
+      Children:
+        - WorkerStack
+
+    WorkerStack:
+      Type: AWS::Diagram::VerticalStack
+      Children:
+        - K8sWorker
+        - WorkerIP
+
+    K8sWorker:
+      Type: AWS::EC2::Instance
+      Title: "k8s-worker"
+    WorkerIP:
+      Type: AWS::Diagram::Resource
+      Title: "10.126.65.5"
