@@ -114,5 +114,23 @@ add chain=srcnat action=masquerade out-interface=ether1 \
     src-address=@@LOCAL_PRIVATE_SUBNET@@ dst-address=!@@PEER_SUPERNET@@ \
     comment="NAT private subnet to the internet, never to the peer"
 
+# --- Port-forward into the private subnet -------------------------------------
+# dst-nat alone is NOT enough on a cloud whose private security group filters by
+# source. dst-nat rewrites only the DESTINATION, so the packet still arrives at
+# the target carrying the original external source address - which the security
+# group does not recognise, and drops. The paired srcnat below makes it arrive
+# from the appliance instead, which the intra-VPC rule already permits.
+#
+# Uncomment and adjust per host; the port must sit inside the range opened on
+# the security group by terraform (nat_port_range).
+#
+# /ip firewall nat
+# add chain=dstnat action=dst-nat protocol=tcp \
+#     dst-address=@@CHR_PRIVATE_IP@@ dst-port=20022 \
+#     to-addresses=<private host> to-ports=22 comment="natfwd: SSH to <host>"
+# add chain=srcnat action=masquerade protocol=tcp \
+#     dst-address=<private host> dst-port=22 out-interface=ether2 \
+#     comment="natfwd hairpin: source from the appliance so the cloud SG accepts it"
+
 /system clock
 set time-zone-name=@@TIMEZONE@@
