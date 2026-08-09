@@ -42,15 +42,36 @@ time lost.
 
 | Path | |
 |---|---|
+| `terraform/alibaba-chr/` | Provisions the CHR: EIP, two NICs, security-group rules, private route table |
+| `terraform/azure-pfsense/` | Provisions pfSense: public IP, two NICs, NSG rules on both layers, private route table |
 | `routeros/chr-tunnel.rsc.tmpl` | RouterOS side, templated |
 | `pfsense/apply-tunnel.php` | pfSense side, idempotent, writes config only |
 | `apply.sh` | Renders the templates from `vars.env` and pushes them |
 | `docs/bgp-stability.md` | Why the BGP session flapped, and the three unrelated causes behind it |
 
-Infrastructure (VMs, NICs, cloud firewalls, route tables) is assumed to exist.
-This repo configures what runs inside the appliances.
+The split is deliberate. Terraform builds the machines and everything the
+cloud controls — addresses, NICs, firewalls, route tables. The templates
+configure what runs *inside* the appliances, which no Terraform provider
+manages. A rebuilt VM gets its configuration back from here, not from state.
 
 ## Build it
+
+**1. Provision the infrastructure**, one stack per cloud:
+
+```bash
+cd terraform/alibaba-chr   && cp terraform.tfvars.example terraform.tfvars && terraform init && terraform apply
+cd terraform/azure-pfsense && cp terraform.tfvars.example terraform.tfvars && terraform init && terraform apply
+```
+
+Each stack expects a VPC/VNet, subnets and security groups to already exist and
+references them by id — it never creates or modifies them, so it can be dropped
+into an environment somebody else owns. Note the outputs: the two public
+addresses and the two private ones.
+
+Then put each side's public address into the other's `ipsec_peer_ip_cidr` and
+re-apply, so both cloud firewalls open the tunnel to the peer.
+
+**2. Configure the appliances:**
 
 ```bash
 cp vars.env.example vars.env      # fill in, including a real IPSEC_PSK

@@ -1,0 +1,36 @@
+# Copy to terraform.tfvars and fill in. The real file is gitignored.
+
+subscription_id        = "<SUBSCRIPTION_ID>"
+network_resource_group = "<RG holding the VNet, subnets and subnet NSG>"
+compute_resource_group = "<RG the VM goes into>"
+vnet_name              = "<VNET_NAME>"
+public_subnet_name     = "<PUBLIC_SUBNET_NAME>"
+private_subnet_name    = "<PRIVATE_SUBNET_NAME>"
+
+# Inbound is filtered by the subnet NSG BEFORE the NIC NSG, so management rules
+# have to exist in both. This is the shared one already on the public subnet.
+public_subnet_nsg_name = "<PUBLIC_SUBNET_NSG_NAME>"
+
+# Only source allowed to reach management. Keep it a /32.
+admin_ip_cidr = "203.0.113.10/32"
+
+# Image defaults are 443/22. Change these only together with the pfSense-side
+# settings, using legacy_mgmt_ports to stage the move (see README).
+web_port          = 443
+ssh_port          = 22
+legacy_mgmt_ports = []
+
+# Routing: private subnet egress through the appliance.
+peer_cidr              = "10.0.0.0/18"   # the remote cloud's supernet
+manage_private_routing = true
+
+# Pin these: the peer config and the UDR next-hop reference them by address.
+wan_private_ip = "10.1.0.4"
+lan_private_ip = "10.1.1.4"
+
+# Reserved for port-forwards into the private subnet (admin IP only).
+nat_port_range = "20000-20999"
+
+# Allow the remote cloud wholesale (tunnel is already encrypted).
+private_subnet_nsg_name = "<PRIVATE_SUBNET_NSG_NAME>"
+allow_peer_all          = true

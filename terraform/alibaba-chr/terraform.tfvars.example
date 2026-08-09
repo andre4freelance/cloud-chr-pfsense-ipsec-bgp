@@ -1,0 +1,39 @@
+# Copy to terraform.tfvars and fill in. The real file is gitignored.
+
+resource_group_id         = "<RESOURCE_GROUP_ID>"
+public_vswitch_id         = "<PUBLIC_VSWITCH_ID>"
+private_vswitch_id        = "<PRIVATE_VSWITCH_ID>"
+public_security_group_id  = "<PUBLIC_SG_ID>"
+private_security_group_id = "<PRIVATE_SG_ID>"
+
+# Custom CHR image. Must be x86_64 - an arm64 CHR build stops itself ~20s
+# after every start with no diagnostic output.
+image_id = "<CHR_X86_64_IMAGE_ID>"
+
+# Only source allowed to reach management. Keep it a /32.
+admin_ip_cidr = "203.0.113.10/32"
+
+# Must match /ip service on the device. Image defaults are 8291 / 22.
+winbox_port = 8291
+ssh_port    = 22
+
+# Public address of the remote tunnel peer. Empty until the far end exists.
+ipsec_peer_ip_cidr = ""
+
+# Peak cap only; PayByTraffic bills per GB so this adds no fixed cost.
+eip_bandwidth = "100"
+
+# Routing: give the private subnet a default route through the appliance.
+vpc_id                 = "<VPC_ID>"
+peer_cidr              = "10.1.0.0/18"   # the remote cloud's supernet
+manage_private_routing = true
+
+# Pin these so a rebuild reproduces the addresses the peer references.
+public_private_ip = "10.0.0.10"
+private_eni_ip    = "10.0.10.10"
+
+# Reserved for port-forwards into the private vswitch (admin IP only).
+nat_port_range = "20000/20999"
+
+# Let the remote cloud reach hosts in the private vswitch.
+allow_peer_into_private_sg = true
