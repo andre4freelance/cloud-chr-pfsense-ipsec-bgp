@@ -264,9 +264,11 @@ ssh <pfsense> 'cat /cf/conf/config.xml' > pfsense-config.xml
 ssh <routeros> '/export'                > routeros-export.rsc
 chmod 600 *.xml *.rsc
 ```
+---
 
-Both contain pre-shared keys and password hashes. Keep them out of any repo.
+## Links
 
-## License
-
-MIT — see [LICENSE](LICENSE).
+Origin : 
+- [Origin](https://github.com/andre4freelance/cloud-chr-pfsense-ipsec-bgp
+- [Linkedin post](https://www.linkedin.com/posts/link-andre-bastian_cloudnetworking-multicloud-networking-ugcPost-7492274308967215104-7h1x/?utm_source=share&utm_medium=member_desktop&rcm=ACoAAD73JlUBty-p-mBfMEW0-O4j0sv-e_PRQvc)
+- Facebook post
