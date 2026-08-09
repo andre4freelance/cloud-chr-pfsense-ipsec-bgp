@@ -148,12 +148,23 @@ add chain=srcnat action=masquerade out-interface=ether1 \
 # Uncomment and adjust per host; the port must sit inside the range opened on
 # the security group by terraform (nat_port_range).
 #
+# SCOPE THE HAIRPIN WITH in-interface. A hairpin matched only by destination
+# and port also catches traffic arriving from the TUNNEL, because that traffic
+# leaves by the same private interface. Forwarding a service the remote cloud
+# also uses - a Kubernetes API server is the obvious case - would then
+# masquerade every peer-cloud client into the appliance's own address, and the
+# service sees all of them as one host. Restricting the hairpin to traffic that
+# entered from the public interface keeps the port-forward working while
+# leaving tunnel traffic untouched. Verify with `ss -tn` on the target: the
+# peer's real address must still appear.
+#
 # /ip firewall nat
 # add chain=dstnat action=dst-nat protocol=tcp \
 #     dst-address=@@CHR_PRIVATE_IP@@ dst-port=20022 \
 #     to-addresses=<private host> to-ports=22 comment="natfwd: SSH to <host>"
 # add chain=srcnat action=masquerade protocol=tcp \
-#     dst-address=<private host> dst-port=22 out-interface=ether2 \
+#     dst-address=<private host> dst-port=22 \
+#     in-interface=ether1 out-interface=ether2 \
 #     comment="natfwd hairpin: source from the appliance so the cloud SG accepts it"
 
 /system clock
