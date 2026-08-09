@@ -1,10 +1,9 @@
-# Rendered configs and anything holding the PSK or a device backup
+# Rendered configs and anything holding the PSK
 vars.env
 *.rendered
-*.rsc
 !*.rsc.tmpl
 backups/
-*.xml
+
 
 # Terraform: state and real variable files never belong in a public repo
 *.tfstate
