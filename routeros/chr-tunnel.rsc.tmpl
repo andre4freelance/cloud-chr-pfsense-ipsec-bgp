@@ -1,0 +1,106 @@
+# MikroTik CHR — Alibaba Cloud end of the multi-cloud tunnel
+#
+# Template. Substitute the @@PLACEHOLDERS@@ (apply.sh does this from vars.env)
+# and feed the result to the device. Every line is idempotent-safe to re-run
+# EXCEPT the `add` commands, which duplicate — apply.sh removes the matching
+# objects first. Never commit a rendered copy: it contains the PSK.
+#
+# Applies to infrastructure built by terraform/aliyun-vm. Assumes ether1 is on
+# the public vswitch and ether2 on the private one.
+
+# --- Management ports --------------------------------------------------------
+# Moved off the defaults. The cloud security group must allow the SAME ports or
+# the device becomes unreachable the moment this is applied.
+/ip service
+set ssh port=@@CHR_SSH_PORT@@
+set winbox port=@@CHR_WINBOX_PORT@@
+set ftp disabled=yes
+set telnet disabled=yes
+set www disabled=yes
+set api disabled=yes
+set api-ssl disabled=yes
+
+# --- Addressing --------------------------------------------------------------
+/ip dhcp-client
+add interface=ether1 name=client1
+add interface=ether2 name=client2 add-default-route=no use-peer-dns=no use-peer-ntp=no
+
+# Large fragment threshold: GRE inside IPsec produces packets the default
+# threshold handles poorly.
+/ip settings
+set ipv4-high-fragment-thresh=16.0MiB
+
+# --- IPsec -------------------------------------------------------------------
+# Both endpoints are behind 1:1 NAT, so:
+#   * my-id / remote-id must be the PUBLIC addresses; the interface addresses
+#     are private and the peer would reject them
+#   * NAT-T is used automatically, ESP is carried inside UDP 4500
+#   * the policy matches on protocol=gre between this device's PRIVATE address
+#     and the peer's PUBLIC address — that pairing is what the far side mirrors
+/ip ipsec profile
+add name=azure dh-group=modp2048 enc-algorithm=aes-256 hash-algorithm=sha256 lifetime=8h
+
+/ip ipsec proposal
+add name=azure auth-algorithms=sha256 enc-algorithms=aes-256-cbc,aes-256-ctr,aes-256-gcm \
+    pfs-group=modp2048 lifetime=1h
+
+/ip ipsec peer
+add name=azure address=@@PEER_PUBLIC_IP@@/32 exchange-mode=ike2 profile=azure \
+    local-address=@@CHR_PRIVATE_IP@@
+
+/ip ipsec identity
+add peer=azure auth-method=pre-shared-key secret="@@IPSEC_PSK@@" \
+    my-id=address:@@CHR_PUBLIC_IP@@ remote-id=address:@@PEER_PUBLIC_IP@@
+
+/ip ipsec policy
+add peer=azure tunnel=yes protocol=gre \
+    src-address=@@CHR_PRIVATE_IP@@/32 dst-address=@@PEER_PUBLIC_IP@@/32 \
+    sa-src-address=@@CHR_PRIVATE_IP@@ sa-dst-address=@@PEER_PUBLIC_IP@@ \
+    proposal=azure
+
+# --- GRE ---------------------------------------------------------------------
+# keepalive is DELIBERATELY absent: FreeBSD's gre(4) on the pfSense side never
+# answers GRE keepalives, so RouterOS would decide the link is down every few
+# seconds and take BGP with it. Liveness comes from the BGP hold timer and DPD.
+#
+# allow-fast-path=no because fast path bypasses processing that GRE-over-IPsec
+# depends on. MTU must match the far end exactly.
+/interface gre
+add name=gre-azure local-address=@@CHR_PRIVATE_IP@@ remote-address=@@PEER_PUBLIC_IP@@ \
+    mtu=@@TUNNEL_MTU@@ allow-fast-path=no !keepalive
+
+/ip address
+add address=@@CHR_TUNNEL_IP@@/30 interface=gre-azure network=@@TUNNEL_NETWORK@@
+
+# --- Routing -----------------------------------------------------------------
+# The VPC supernet is not a connected route (only the per-subnet /24s are), and
+# BGP will not advertise a prefix that is absent from the routing table. The
+# next-hop is an INTERFACE, not a gateway address, so this line is portable.
+/ip route
+add dst-address=@@VPC_SUPERNET@@ gateway=ether2 distance=1 comment="vpc network"
+
+# --- BGP ---------------------------------------------------------------------
+# Outbound filter is an allow-list. Two things must never leave:
+#   * the tunnel transport /30
+#   * anything covering the peer's public address
+# Advertising either hands the far end a route to this tunnel's own endpoint
+# through the tunnel — a recursion that collapses the link.
+/routing filter rule
+add chain=azure-out rule="if (dst == @@LOCAL_PUBLIC_SUBNET@@ || dst == @@LOCAL_PRIVATE_SUBNET@@ || dst == @@VPC_SUPERNET@@) { accept } reject"
+add chain=azure-in  rule="if (dst == 0.0.0.0/0 || dst in @@PEER_PUBLIC_IP@@/32) { reject } accept"
+
+/routing bgp instance
+add name=aliyun as=@@LOCAL_ASN@@ router-id=@@CHR_PRIVATE_IP@@ disabled=no
+
+/routing bgp template
+add name=aliyun as=@@LOCAL_ASN@@
+
+/routing bgp connection
+add name=pfsense-azure instance=aliyun templates=aliyun as=@@LOCAL_ASN@@ \
+    local.address=@@CHR_TUNNEL_IP@@ .role=ebgp \
+    remote.address=@@PEER_TUNNEL_IP@@/32 .as=@@PEER_ASN@@ \
+    input.filter=azure-in output.filter-chain=azure-out .redistribute=connected,static \
+    routing-table=main disabled=no
+
+/system clock
+set time-zone-name=@@TIMEZONE@@

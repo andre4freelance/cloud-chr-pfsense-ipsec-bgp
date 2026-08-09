@@ -1,0 +1,7 @@
+# Rendered configs and anything holding the PSK or a device backup
+vars.env
+*.rendered
+*.rsc
+!*.rsc.tmpl
+backups/
+*.xml
