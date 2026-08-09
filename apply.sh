@@ -24,6 +24,7 @@ render_chr() {
       -e "s|@@PEER_TUNNEL_IP@@|$PEER_TUNNEL_IP|g" \
       -e "s|@@TUNNEL_NETWORK@@|$TUNNEL_NETWORK|g" \
       -e "s|@@TUNNEL_MTU@@|$TUNNEL_MTU|g" \
+      -e "s|@@TUNNEL_MSS@@|$TUNNEL_MSS|g" \
       -e "s|@@LOCAL_ASN@@|$LOCAL_ASN|g" \
       -e "s|@@PEER_ASN@@|$PEER_ASN|g" \
       -e "s|@@LOCAL_PUBLIC_SUBNET@@|$LOCAL_PUBLIC_SUBNET|g" \
@@ -70,6 +71,7 @@ case "${1:-}" in
        /ip/address remove [find interface=gre-azure];
        /interface/gre remove [find name=gre-azure];
        /ip/route remove [find comment="vpc network"];
+       /ip/firewall/mangle remove [find comment="clamp tcp mss to the measured path mtu"];
        /ip/dhcp-client remove [find];' 2>/dev/null || true
     scp -P "${CHR_SSH_PORT}" "$OUT/chr.rsc" "$CHR_SSH:/chr-tunnel.rsc"
     ssh -p "${CHR_SSH_PORT}" "$CHR_SSH" '/import file-name=chr-tunnel.rsc; /file remove [find name=chr-tunnel.rsc]'

@@ -116,7 +116,7 @@ $ifs['opt1'] = array('if' => $v['tunnel_if'], 'descr' => 'TUNNEL', 'enable' => '
 config_set_path('interfaces', $ifs);
 
 /* ------------------------------------------------------------- firewall ---
- * Three rules, and the OUTBOUND one is the non-obvious requirement.
+ * Four rules, and the two OUTBOUND ones are the non-obvious requirements.
  *
  * pfSense's generated "let out anything from firewall host itself" rule reads
  * `to ! <tunnel /30>` - it EXCLUDES the tunnel subnet, which is exactly where
@@ -124,10 +124,29 @@ config_set_path('interfaces', $ifs);
  * its own SYN-ACK to the peer, the peer's connection is never answered, and
  * BGP flaps every few minutes. Sloppy state is required: pfSense writes user
  * rules with `flags S/SA`, which matches a pure SYN and never a SYN-ACK.
+ *
+ * The SAME trap then bites ROUTED traffic, and the fix has a catch. A rule that
+ * does not name a protocol cannot carry TCP-flag handling at all: `tcpflags_any`
+ * is stored in config.xml, displayed as "any flags" in the WebGUI, and silently
+ * DISCARDED at rule generation, leaving pf's own `flags S/SA` default in place.
+ * So the catch-all rule below passes a pure SYN but drops the SYN-ACK of a
+ * forwarded connection on its way out to the tunnel - TCP dies in one direction
+ * while ICMP and UDP work, and `kubectl logs`/`exec` to a node on the far cloud
+ * time out. A protocol-tcp rule scoped to the two supernets is therefore
+ * required IN ADDITION to the catch-all; it cannot be folded into it.
  */
 $rules = array_values(array_filter(config_get_path('filter/rule', array()),
     fn($r) => !in_array(($r['interface'] ?? ''), array('opt1', 'enc0'), true)));
 
+$rules[] = array(
+    'type' => 'pass', 'interface' => 'opt1', 'ipprotocol' => 'inet',
+    'protocol' => 'tcp',
+    'floating' => 'yes', 'direction' => 'out', 'quick' => 'yes',
+    'statetype' => 'sloppy state', 'tcpflags_any' => true,
+    'source' => array('address' => $v['vnet_supernet']),
+    'destination' => array('address' => $v['peer_supernet']),
+    'descr' => 'peer cloud tcp out over tunnel: any flags, sloppy',
+);
 $rules[] = array(
     'type' => 'pass', 'interface' => 'opt1', 'ipprotocol' => 'inet',
     'floating' => 'yes', 'direction' => 'out', 'quick' => 'yes',

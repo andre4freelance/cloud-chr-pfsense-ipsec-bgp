@@ -64,13 +64,37 @@ add peer=azure tunnel=yes protocol=gre \
 # seconds and take BGP with it. Liveness comes from the BGP hold timer and DPD.
 #
 # allow-fast-path=no because fast path bypasses processing that GRE-over-IPsec
-# depends on. MTU must match the far end exactly.
+# depends on. MTU must match the far end exactly, and must be the MEASURED
+# end-to-end path MTU (ping -M do from both ends), not a nominal figure — see
+# the MSS section below for what happens when it is 12 bytes optimistic.
 /interface gre
 add name=gre-azure local-address=@@CHR_PRIVATE_IP@@ remote-address=@@PEER_PUBLIC_IP@@ \
     mtu=@@TUNNEL_MTU@@ allow-fast-path=no !keepalive
 
 /ip address
 add address=@@CHR_TUNNEL_IP@@/30 interface=gre-azure network=@@TUNNEL_NETWORK@@
+
+# --- TCP MSS clamping ---------------------------------------------------------
+# `clamp-tcp-mss=yes` on the GRE interface derives its clamp from that
+# interface's MTU. That is the tunnel's NOMINAL MTU, which is not the same as
+# the end-to-end path MTU once IPsec/NAT-T overhead is counted. With mtu=1400
+# against a measured path of 1388 it produced segments 12 bytes too large:
+# handshakes and small requests succeeded, bulk transfers vanished with no error
+# at either end. A `kubeadm join` across the tunnel failed while "reading the
+# response body" of a ConfigMap — which reads like an API problem, not an MTU one.
+#
+# Clamp explicitly to the measured path MTU minus 40 instead. TWO rules, because
+# the SYN of a flow and the SYN-ACK of that same flow traverse this device on
+# OPPOSITE interfaces. Clamping at this single transit point therefore covers
+# both directions of every TCP flow between the two clouds, and the peer
+# appliance needs no clamping of its own.
+/ip firewall mangle
+add chain=forward action=change-mss new-mss=@@TUNNEL_MSS@@ passthrough=yes \
+    protocol=tcp tcp-flags=syn out-interface=gre-azure \
+    comment="clamp tcp mss to the measured path mtu"
+add chain=forward action=change-mss new-mss=@@TUNNEL_MSS@@ passthrough=yes \
+    protocol=tcp tcp-flags=syn in-interface=gre-azure \
+    comment="clamp tcp mss to the measured path mtu"
 
 # --- Routing -----------------------------------------------------------------
 # The VPC supernet is not a connected route (only the per-subnet /24s are), and
