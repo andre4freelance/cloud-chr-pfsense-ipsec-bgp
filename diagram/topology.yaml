@@ -1,23 +1,30 @@
-# Diagram-as-code source for images/topology.png
+# Diagram-as-code source for images/topology-logos.png
 #
-# Rendered with awslabs/diagram-as-code (awsdac):
-#   awsdac diagram/topology.yaml -o images/topology.png
+# Identical to topology.yaml except for two things:
+#   * the two appliances use their vendor logomarks instead of the generic
+#     compute icon (see the note on icons below);
+#   * the Azure VNet is labelled by its CIDR only.
 #
-# The generator sizes the canvas to fit its contents, so the raw output is not
-# 1920x1080. Fit it afterwards without distorting the drawing:
-#   convert images/topology.png -resize 1920x1080 \
-#           -background white -gravity center -extent 1920x1080 images/topology.png
+# Rendered with awslabs/diagram-as-code (awsdac), then fitted to 1920x1080
+# without distorting the drawing:
+#   convert images/topology-logos.png -resize 1920x1080 \
+#           -background white -gravity center -extent 1920x1080 \
+#           images/topology-logos.png
 #
-# Two layout choices worth keeping if this is edited:
+# ICON PATHS ARE ABSOLUTE, and that is not cosmetic. The renderer resolves an
+# Icon path against ITS OWN working directory, not against the location of this
+# file - a relative path fails with "no such file or directory" even when the
+# file is plainly there. Adjust the two Icon lines below to wherever this
+# repository is checked out before regenerating.
 #
-#   1. Tunnel details live in their own box between the two clouds, NOT as link
-#      labels. Long labels on a link are drawn from the line's endpoint and
-#      overrun whatever is beside them - the first attempt buried the CHR's
-#      title and pushed text off the left edge of the canvas.
+# Use the LOGOMARK, not the full wordmark. Both vendors' logos are wide
+# horizontal lockups, and the icon slot is small and square: a wordmark scaled
+# into it becomes an unreadable smudge. Cropping the square symbol out of the
+# logo keeps it legible, and the resource Title underneath already carries the
+# product name.
 #
-#   2. Each interface address is its own child resource under the appliance,
-#      stacked vertically. Putting them all in one Title makes a single wide
-#      line that escapes its subnet box.
+# Icons in diagram/icons/ were cropped from the vendor logos on Wikimedia
+# Commons, padded to square with a transparent background.
 
 Diagram:
   DefinitionFiles:
@@ -118,7 +125,8 @@ Diagram:
         - CHRIf2
 
     CHR:
-      Type: AWS::EC2::Instance
+      Type: AWS::Diagram::Resource
+      Icon: /home/me/ai-ops/repo/cloud-chr-pfsense-ipsec-bgp/diagram/icons/mikrotik.png
       Title: "MikroTik CHR"
     CHRIf1:
       Type: AWS::Diagram::Resource
@@ -156,7 +164,7 @@ Diagram:
 
     VNetAzure:
       Type: AWS::EC2::VPC
-      Title: "VNet vnet-ics-ms   10.126.64.0/18"
+      Title: "VNet   10.126.64.0/18"
       Direction: vertical
       Children:
         - AzureSubnets
@@ -182,7 +190,8 @@ Diagram:
         - PFIf2
 
     PFSense:
-      Type: AWS::EC2::Instance
+      Type: AWS::Diagram::Resource
+      Icon: /home/me/ai-ops/repo/cloud-chr-pfsense-ipsec-bgp/diagram/icons/pfsense.png
       Title: "pfSense Plus"
     PFIf1:
       Type: AWS::Diagram::Resource
