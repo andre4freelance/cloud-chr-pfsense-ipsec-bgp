@@ -25,7 +25,7 @@ if (!is_array($v)) {
 foreach (['peer_public_ip','peer_private_ip','local_public_ip','local_private_ip',
           'local_tunnel_ip','peer_tunnel_ip','ipsec_psk','local_asn','peer_asn',
           'vnet_supernet','local_public_subnet','local_private_subnet',
-          'tunnel_mtu','wan_if','lan_if','tunnel_if'] as $k) {
+          'tunnel_mtu','wan_if','lan_if','tunnel_if','peer_supernet'] as $k) {
     if (!isset($v[$k])) { fwrite(STDERR, "missing var: {$k}\n"); exit(1); }
 }
 $IKEID = 1;
@@ -161,6 +161,18 @@ array_unshift($nat, array(
     'source' => array('any' => ''), 'destination' => array('any' => ''),
     'nonat' => '', 'descr' => 'No NAT over the site-to-site tunnel',
 ));
+
+/* The private subnet routes its default through this appliance, so it needs
+ * source NAT on the way out of WAN. The negated destination is the important
+ * part: traffic to the REMOTE CLOUD must keep its real source, because the far
+ * side routes replies back by that address. */
+$nat[] = array(
+    'interface'   => 'wan',
+    'source'      => array('network' => $v['local_private_subnet']),
+    'destination' => array('network' => $v['peer_supernet'], 'not' => true),
+    'target'      => '',
+    'descr'       => 'NAT private subnet to the internet, never to the peer',
+);
 config_set_path('nat/outbound/rule', $nat);
 
 /* ----------------------------------------------------------------- FRR ---

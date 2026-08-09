@@ -102,5 +102,17 @@ add name=pfsense-azure instance=aliyun templates=aliyun as=@@LOCAL_ASN@@ \
     input.filter=azure-in output.filter-chain=azure-out .redistribute=connected,static \
     routing-table=main disabled=no
 
+# --- NAT ---------------------------------------------------------------------
+# The private subnet reaches the internet through this device, so it needs
+# source NAT on the way out. The `dst-address=!` exclusion is the important
+# part: traffic to the REMOTE CLOUD must keep its real source address, because
+# the far side routes the reply back by that address. NAT it and the return
+# packet is addressed to this router instead of the originating host, and the
+# session dies with no error anywhere obvious.
+/ip firewall nat
+add chain=srcnat action=masquerade out-interface=ether1 \
+    src-address=@@LOCAL_PRIVATE_SUBNET@@ dst-address=!@@PEER_SUPERNET@@ \
+    comment="NAT private subnet to the internet, never to the peer"
+
 /system clock
 set time-zone-name=@@TIMEZONE@@

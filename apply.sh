@@ -29,6 +29,7 @@ render_chr() {
       -e "s|@@LOCAL_PUBLIC_SUBNET@@|$LOCAL_PUBLIC_SUBNET|g" \
       -e "s|@@LOCAL_PRIVATE_SUBNET@@|$LOCAL_PRIVATE_SUBNET|g" \
       -e "s|@@VPC_SUPERNET@@|$VPC_SUPERNET|g" \
+      -e "s|@@PEER_SUPERNET@@|$VNET_SUPERNET|g" \
       -e "s|@@TIMEZONE@@|$TIMEZONE|g" \
       -e "s|@@IPSEC_PSK@@|$IPSEC_PSK|g" \
       routeros/chr-tunnel.rsc.tmpl
@@ -41,7 +42,7 @@ pf_vars() {
   "local_tunnel_ip":"$PEER_TUNNEL_IP", "peer_tunnel_ip":"$CHR_TUNNEL_IP",
   "ipsec_psk":"$IPSEC_PSK", "local_asn":$PEER_ASN, "peer_asn":$LOCAL_ASN,
   "vnet_supernet":"$VNET_SUPERNET", "local_public_subnet":"$PEER_PUBLIC_SUBNET",
-  "local_private_subnet":"$PEER_PRIVATE_SUBNET", "tunnel_mtu":$TUNNEL_MTU,
+  "local_private_subnet":"$PEER_PRIVATE_SUBNET", "peer_supernet":"$VPC_SUPERNET", "tunnel_mtu":$TUNNEL_MTU,
   "wan_if":"${PF_WAN_IF:-hn0}", "lan_if":"${PF_LAN_IF:-hn1}", "tunnel_if":"${PF_TUNNEL_IF:-gre0}" }
 JSON
 }
